@@ -11,6 +11,7 @@ type TokenResponse = {
 export type Allocation = {
   id: number;
   category_id: number;
+  currency_id: number;
   planned_amount_cents: number;
   reserved_amount_cents: number;
   spent_amount_cents: number;
@@ -19,6 +20,7 @@ export type Allocation = {
 
 export type Summary = {
   period: { id: number; year: number; month: number; status: string };
+  base_currency_id: number;
   income_cents: number;
   committed_cents: number;
   allocated_cents: number;
@@ -29,6 +31,30 @@ export type Summary = {
 };
 
 export type Category = { id: number; name: string; kind: string; color: string | null; icon: string | null; is_active: boolean };
+export type Currency = { id: number; code: string; name: string; symbol: string; decimal_places: number; is_active: boolean };
+export type Movement = {
+  id: string;
+  kind: "allocation" | "income" | "expense" | "transfer";
+  direction: "in" | "out";
+  movement_date: string;
+  title: string;
+  amount_cents: number;
+  currency_id: number;
+  period_id: number;
+  allocation_id: number | null;
+  category_id: number | null;
+};
+export type CalendarEvent = {
+  id: string;
+  kind: "recurring" | "planned";
+  due_date: string;
+  title: string;
+  amount_cents: number;
+  currency_id: number;
+  category_id: number;
+  source_id: number;
+  status: "pending" | "due_soon" | "overdue" | "paid";
+};
 
 export async function login(username: string, password: string) {
   const response = await fetch(`${apiUrl}/auth/login`, {
@@ -125,6 +151,38 @@ export async function getSummary(periodId: number) {
   return response.json() as Promise<Summary>;
 }
 
+export async function getMovements(filters: {
+  period_id?: number;
+  allocation_id?: number;
+  currency_id?: number;
+  kind?: string;
+} = {}) {
+  const query = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined) query.set(key, String(value));
+  });
+  const response = await authorizedFetch(`/api/v1/movements?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+  });
+  return response.json() as Promise<Movement[]>;
+}
+
+export async function getCalendarEvents(year: number, month: number) {
+  const response = await authorizedFetch(`/api/v1/calendar?year=${year}&month=${month}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+  });
+  return response.json() as Promise<CalendarEvent[]>;
+}
+
+export async function setCalendarPayment(data: { kind: "recurring" | "planned"; source_id: number; due_date: string; paid: boolean }) {
+  const response = await authorizedFetch("/api/v1/calendar/payments", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+    body: JSON.stringify(data),
+  });
+  return response.json() as Promise<CalendarEvent>;
+}
+
 export async function getCategories() {
   const response = await authorizedFetch("/api/v1/categories", {
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
@@ -132,9 +190,25 @@ export async function getCategories() {
   return response.json() as Promise<Category[]>;
 }
 
+export async function getCurrencies() {
+  const response = await authorizedFetch("/api/v1/currencies", {
+    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+  });
+  return response.json() as Promise<Currency[]>;
+}
+
+export async function createExchangeRate(data: { base_currency_id: number; quote_currency_id: number; rate: number; effective_at: string }) {
+  const response = await authorizedFetch("/api/v1/currencies/rates", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
 export type Period = { id: number; year: number; month: number; status: string };
-export type RecurringExpense = { id: number; category_id: number; name: string; amount_cents: number; amount_type: string; due_day: number; active: boolean };
-export type PlannedExpense = { id: number; category_id: number; description: string; estimated_amount_cents: number; target_date: string; status: string };
+export type RecurringExpense = { id: number; category_id: number; currency_id: number; name: string; amount_cents: number; amount_type: string; due_day: number; due_date: string | null; active: boolean };
+export type PlannedExpense = { id: number; category_id: number; currency_id: number; description: string; estimated_amount_cents: number; target_date: string; status: string };
 
 export async function createCategory(data: { name: string; kind: string; color?: string }) {
   const response = await authorizedFetch("/api/v1/categories", {
@@ -145,7 +219,7 @@ export async function createCategory(data: { name: string; kind: string; color?:
   return response.json() as Promise<Category>;
 }
 
-export async function createIncome(periodId: number, data: { source: string; received_from: string; amount_cents: number; received_on: string }) {
+export async function createIncome(periodId: number, data: { source: string; received_from: string; amount_cents: number; currency_id: number; received_on: string }) {
   const response = await authorizedFetch(`/api/v1/periods/${periodId}/incomes`, {
     method: "POST",
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
@@ -154,7 +228,7 @@ export async function createIncome(periodId: number, data: { source: string; rec
   return response.json();
 }
 
-export async function createAllocation(periodId: number, data: { category_id: number; planned_amount_cents: number; reserved_amount_cents: number }) {
+export async function createAllocation(periodId: number, data: { category_id: number; currency_id: number; planned_amount_cents: number; reserved_amount_cents: number }) {
   const response = await authorizedFetch(`/api/v1/periods/${periodId}/allocations`, {
     method: "POST",
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
@@ -163,7 +237,23 @@ export async function createAllocation(periodId: number, data: { category_id: nu
   return response.json() as Promise<Allocation>;
 }
 
-export async function createRecurring(data: { category_id: number; name: string; amount_cents: number; amount_type: string; due_day: number }) {
+export async function updateAllocation(allocationId: number, data: { planned_amount_cents?: number; reserved_amount_cents?: number }) {
+  const response = await authorizedFetch(`/api/v1/allocations/${allocationId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+    body: JSON.stringify(data),
+  });
+  return response.json() as Promise<Allocation>;
+}
+
+export async function deleteAllocation(allocationId: number) {
+  await authorizedFetch(`/api/v1/allocations/${allocationId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+  });
+}
+
+export async function createRecurring(data: { category_id: number; currency_id: number; name: string; amount_cents: number; amount_type: string; due_date: string }) {
   const response = await authorizedFetch("/api/v1/recurring-expenses", {
     method: "POST",
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
@@ -179,7 +269,7 @@ export async function getRecurring() {
   return response.json() as Promise<RecurringExpense[]>;
 }
 
-export async function createPlanned(data: { category_id: number; description: string; estimated_amount_cents: number; target_date: string }) {
+export async function createPlanned(data: { category_id: number; currency_id: number; description: string; estimated_amount_cents: number; target_date: string }) {
   const response = await authorizedFetch("/api/v1/planned-expenses", {
     method: "POST",
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
@@ -223,6 +313,7 @@ export async function rolloverPeriod(periodId: number) {
 export async function createExpense(periodId: number, data: {
   description: string;
   amount_cents: number;
+  currency_id: number;
   expense_date: string;
   allocations: Array<{ allocation_id: number; amount_cents: number }>;
 }) {
