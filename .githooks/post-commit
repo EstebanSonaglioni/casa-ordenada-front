@@ -9,3 +9,10 @@ if git rev-parse "$tag" >/dev/null 2>&1; then
 fi
 git tag -a "$tag" -m "Release $version" HEAD
 printf 'Tag creado: %s\n' "$tag"
+
+mobile_script="../mobile/scripts/build-and-install-after-frontend-commit.sh"
+if [ -x "$mobile_script" ]; then
+  if ! "$mobile_script"; then
+    printf '%s\n' 'El commit ya fue creado; la APK puede regenerarse con npm --prefix ../mobile run build:apk.' >&2
+  fi
+fi

@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ThemeToggle } from "./components/ThemeToggle";
+import { useToast } from "./components/ToastProvider";
 import { login } from "./lib/auth";
+import { getSessionValue } from "./lib/session";
 
 export default function Home() {
   const router = useRouter();
@@ -12,6 +14,18 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const showToast = useToast();
+
+  useEffect(() => {
+    void getSessionValue("access_token").then((token) => {
+      if (token) {
+        router.replace("/home");
+        return;
+      }
+      setCheckingSession(false);
+    });
+  }, [router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -19,13 +33,18 @@ export default function Home() {
     setLoading(true);
     try {
       await login(username, password);
-      router.push("/dashboard");
+      showToast("Sesión iniciada correctamente.");
+      router.replace("/home");
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : "No pudimos iniciar sesión");
+      const message = loginError instanceof Error ? loginError.message : "No pudimos iniciar sesión";
+      setError(message);
+      showToast(message, "error");
     } finally {
       setLoading(false);
     }
   }
+
+  if (checkingSession) return null;
 
   return (
     <main className="login-shell">

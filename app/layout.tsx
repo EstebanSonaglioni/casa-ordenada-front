@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Footer } from "./components/Footer";
+import { ToastProvider } from "./components/ToastProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,7 +13,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="es">
-      <body><div className="app-page">{children}</div><Footer /></body>
+      <body><ToastProvider><div className="app-page">{children}</div><Footer /></ToastProvider></body>
     </html>
   );
 }

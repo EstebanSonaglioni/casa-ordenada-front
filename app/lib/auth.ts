@@ -1,3 +1,5 @@
+import { getSessionValue, removeSessionValue, setSessionValue } from "./session";
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type TokenResponse = {
@@ -68,15 +70,17 @@ export async function login(username: string, password: string) {
   }
 
   const tokens = (await response.json()) as TokenResponse;
-  localStorage.setItem("access_token", tokens.access_token);
-  localStorage.setItem("refresh_token", tokens.refresh_token);
-  localStorage.setItem("username", tokens.username);
-  localStorage.setItem("role", tokens.role);
+  await Promise.all([
+    setSessionValue("access_token", tokens.access_token),
+    setSessionValue("refresh_token", tokens.refresh_token),
+    setSessionValue("username", tokens.username),
+    setSessionValue("role", tokens.role),
+  ]);
   return tokens;
 }
 
 export async function refreshAccessToken() {
-  const refreshToken = localStorage.getItem("refresh_token");
+  const refreshToken = await getSessionValue("refresh_token");
   if (!refreshToken) {
     throw new Error("No hay refresh token disponible");
   }
@@ -88,43 +92,46 @@ export async function refreshAccessToken() {
   });
 
   if (!response.ok) {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
+    await Promise.all([removeSessionValue("access_token"), removeSessionValue("refresh_token")]);
     throw new Error("La sesión expiró");
   }
 
   const tokens = (await response.json()) as TokenResponse;
-  localStorage.setItem("access_token", tokens.access_token);
-  localStorage.setItem("refresh_token", tokens.refresh_token);
-  localStorage.setItem("username", tokens.username);
-  localStorage.setItem("role", tokens.role);
+  await Promise.all([
+    setSessionValue("access_token", tokens.access_token),
+    setSessionValue("refresh_token", tokens.refresh_token),
+    setSessionValue("username", tokens.username),
+    setSessionValue("role", tokens.role),
+  ]);
   return tokens;
 }
 
 export function logout() {
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
-  localStorage.removeItem("username");
-  localStorage.removeItem("role");
+  void Promise.all(["access_token", "refresh_token", "username", "role"].map(removeSessionValue));
 }
 
-async function authorizedFetch(path: string, init: RequestInit = {}) {
+export async function authorizedFetch(path: string, init: RequestInit = {}) {
+  const accessToken = await getSessionValue("access_token");
   let response = await fetch(`${apiUrl}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init.headers },
+    headers: { "Content-Type": "application/json", ...init.headers, ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
   });
   if (response.status === 401) {
     await refreshAccessToken();
+    const refreshedToken = await getSessionValue("access_token");
     response = await fetch(`${apiUrl}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
         ...init.headers,
-        Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        ...(refreshedToken ? { Authorization: `Bearer ${refreshedToken}` } : {}),
       },
     });
   }
-  if (!response.ok) throw new Error("No pudimos cargar la información");
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? "No pudimos cargar la información");
+  }
   return response;
 }
 
@@ -213,6 +220,15 @@ export type PlannedExpense = { id: number; category_id: number; currency_id: num
 export async function createCategory(data: { name: string; kind: string; color?: string }) {
   const response = await authorizedFetch("/api/v1/categories", {
     method: "POST",
+    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+    body: JSON.stringify(data),
+  });
+  return response.json() as Promise<Category>;
+}
+
+export async function updateCategory(categoryId: number, data: { color: string }) {
+  const response = await authorizedFetch(`/api/v1/categories/${categoryId}`, {
+    method: "PATCH",
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
     body: JSON.stringify(data),
   });

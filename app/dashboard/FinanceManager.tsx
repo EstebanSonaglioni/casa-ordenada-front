@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { useToast } from "../components/ToastProvider";
 
 import {
   Category,
@@ -27,16 +28,19 @@ type Props = {
   currencies: Currency[];
   summary: Summary;
   onRefresh: () => Promise<void>;
+  onCategoriesRefresh: () => Promise<void>;
+  initialTab?: string;
 };
 
 const today = new Date().toISOString().slice(0, 10);
 
-export default function FinanceManager({ categories, currencies, summary, onRefresh }: Props) {
+export default function FinanceManager({ categories, currencies, summary, onRefresh, onCategoriesRefresh, initialTab = "income" }: Props) {
   const [activeTab, setActiveTab] = useState("income");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [recurring, setRecurring] = useState<RecurringExpense[]>([]);
   const [planned, setPlanned] = useState<PlannedExpense[]>([]);
+  const showToast = useToast();
 
   async function reloadLists() {
     const [recurringItems, plannedItems] = await Promise.all([getRecurring(), getPlanned()]);
@@ -48,6 +52,10 @@ export default function FinanceManager({ categories, currencies, summary, onRefr
     void reloadLists();
   }, []);
 
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
   async function submit(action: () => Promise<unknown>, success: string, refreshLists = false) {
     setError("");
     setMessage("");
@@ -56,8 +64,11 @@ export default function FinanceManager({ categories, currencies, summary, onRefr
       if (refreshLists) await reloadLists();
       await onRefresh();
       setMessage(success);
+      showToast(success);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "No pudimos guardar los cambios");
+      const message = actionError instanceof Error ? actionError.message : "No pudimos guardar los cambios";
+      setError(message);
+      showToast(message, "error");
     }
   }
 
@@ -77,7 +88,7 @@ export default function FinanceManager({ categories, currencies, summary, onRefr
       {activeTab === "recurring" && <RecurringForm categories={categories} currencies={currencies} items={recurring} onSubmit={(data) => submit(() => createRecurring(data), "Pago recurrente guardado.", true)} />}
       {activeTab === "planned" && <PlannedForm categories={categories} currencies={currencies} items={planned} onSubmit={(data) => submit(() => createPlanned(data), "Gasto futuro guardado.", true)} />}
       {activeTab === "transfer" && <TransferForm currencies={currencies} summary={summary} onSubmit={(data) => submit(() => transferAllocation(summary.period.id, data), "Transferencia realizada.")} />}
-      {activeTab === "categories" && <CategoryForm onSubmit={(data) => submit(() => createCategory(data), "Categoría creada.")} />}
+      {activeTab === "categories" && <CategoryForm onSubmit={(data) => submit(async () => { await createCategory(data); await onCategoriesRefresh(); }, "Categoría creada.")} />}
       {activeTab === "currencies" && <CurrencyForm currencies={currencies} onSubmit={(data) => submit(() => createExchangeRate(data), "Cotización guardada.")} />}
     </section>
   );
@@ -94,7 +105,7 @@ function IncomeForm({ currencies, onSubmit }: { currencies: Currency[]; onSubmit
 
 function EnvelopeForm({ categories, currencies, summary, onSubmit, onGenerate, onRollover }: { categories: Category[]; currencies: Currency[]; summary: Summary; onSubmit: (data: { category_id: number; currency_id: number; planned_amount_cents: number; reserved_amount_cents: number }) => void; onGenerate: () => void; onRollover: () => void }) {
   const [category, setCategory] = useState(""); const [currency, setCurrency] = useState("1"); const [planned, setPlanned] = useState(""); const [reserved, setReserved] = useState("0");
-  return <FormCard title="Separar dinero por sobre" description="Definí cuánto querés reservar para cada necesidad."><form className="manager-form" onSubmit={(event) => { event.preventDefault(); onSubmit({ category_id: Number(category), currency_id: Number(currency), planned_amount_cents: Math.round(Number(planned) * 100), reserved_amount_cents: Math.round(Number(reserved) * 100) }); }}><SelectInput label="Categoría" value={category} onChange={setCategory} required><option value="">Elegí un sobre</option><CategoryOptions categories={categories} /></SelectInput><MoneyInput label="Monto planificado" value={planned} onChange={setPlanned} currencies={currencies} currencyId={currency} onCurrencyChange={setCurrency} required /><MoneyInput label="Reserva futura incluida" value={reserved} onChange={setReserved} currencies={currencies} currencyId={currency} onCurrencyChange={setCurrency} /><SubmitButton label="Separar dinero" /></form><div className="manager-actions"><button className="secondary-button" type="button" onClick={onGenerate}>Generar recurrentes</button><button className="secondary-button" type="button" onClick={onRollover} disabled={summary.period.status !== "open"}>Cerrar mes y traspasar saldo</button></div></FormCard>;
+  return <FormCard title="Separar dinero por sobre" description="La meta es opcional; solo lo asignado se descuenta de tu saldo general."><form className="manager-form" onSubmit={(event) => { event.preventDefault(); onSubmit({ category_id: Number(category), currency_id: Number(currency), planned_amount_cents: Math.round(Number(planned || 0) * 100), reserved_amount_cents: Math.round(Number(reserved) * 100) }); }}><SelectInput label="Categoría" value={category} onChange={setCategory} required><option value="">Elegí un sobre</option><CategoryOptions categories={categories} /></SelectInput><MoneyInput label="Monto planificado (opcional)" value={planned} onChange={setPlanned} currencies={currencies} currencyId={currency} onCurrencyChange={setCurrency} /><MoneyInput label="Monto asignado" value={reserved} onChange={setReserved} currencies={currencies} currencyId={currency} onCurrencyChange={setCurrency} /><SubmitButton label="Separar dinero" /></form><div className="manager-actions"><button className="secondary-button" type="button" onClick={onGenerate}>Generar recurrentes</button><button className="secondary-button" type="button" onClick={onRollover} disabled={summary.period.status !== "open"}>Cerrar mes y traspasar saldo</button></div></FormCard>;
 }
 
 function RecurringForm({ categories, currencies, items, onSubmit }: { categories: Category[]; currencies: Currency[]; items: RecurringExpense[]; onSubmit: (data: { category_id: number; currency_id: number; name: string; amount_cents: number; amount_type: string; due_date: string }) => void }) {
@@ -116,7 +127,7 @@ function TransferForm({ currencies, summary, onSubmit }: { currencies: Currency[
 
 function CategoryForm({ onSubmit }: { onSubmit: (data: { name: string; kind: string; color: string }) => void }) {
   const [name, setName] = useState(""); const [kind, setKind] = useState("variable"); const [color, setColor] = useState("#5B8266");
-  return <FormCard title="Nueva categoría" description="Creá un sobre para una necesidad que todavía no esté en tu lista."><form className="manager-form" onSubmit={(event) => { event.preventDefault(); onSubmit({ name, kind, color }); }}><TextInput label="Nombre" placeholder="Mascotas" value={name} onChange={setName} required /><SelectInput label="Tipo" value={kind} onChange={setKind}><option value="fixed">Fijo</option><option value="variable">Variable</option><option value="future">Futuro</option><option value="other">Otro</option></SelectInput><label htmlFor="category-color">Color</label><input id="category-color" className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /><SubmitButton label="Crear categoría" /></form></FormCard>;
+  return <FormCard title="Nueva categoría" description="Creá un sobre para una necesidad que todavía no esté en tu lista."><form className="manager-form" onSubmit={(event) => { event.preventDefault(); onSubmit({ name, kind, color }); }}><TextInput label="Nombre" placeholder="Mascotas" value={name} onChange={setName} required /><SelectInput label="Tipo" value={kind} onChange={setKind}><option value="fixed">Fijo</option><option value="variable">Variable</option><option value="future">Futuro</option><option value="other">Otro</option></SelectInput><ColorPalette value={color} onChange={setColor} /><SubmitButton label="Crear categoría" /></form></FormCard>;
 }
 
 function CurrencyForm({ currencies, onSubmit }: { currencies: Currency[]; onSubmit: (data: { base_currency_id: number; quote_currency_id: number; rate: number; effective_at: string }) => void }) {
@@ -127,6 +138,9 @@ function CurrencyForm({ currencies, onSubmit }: { currencies: Currency[]; onSubm
 function MoneyInput({ label, value, onChange, currencies, currencyId, onCurrencyChange, currencyLocked = false, required = false }: { label: string; value: string; onChange: (value: string) => void; currencies: Currency[]; currencyId: string; onCurrencyChange: (value: string) => void; currencyLocked?: boolean; required?: boolean }) {
   return <label className="money-field">{label}<span className="money-control"><span className="money-prefix">$</span><input type="number" min="0" step="0.01" value={value} onChange={(event) => onChange(event.target.value)} required={required} /><select aria-label={`${label} moneda`} value={currencyId} onChange={(event) => onCurrencyChange(event.target.value)} disabled={currencyLocked}>{currencies.map((currency) => <option key={currency.id} value={currency.id}>{currency.code}</option>)}</select></span></label>;
 }
+
+const BASIC_COLORS = ["#5B8266", "#E07A5F", "#F2CC8F", "#5C7CFA", "#9C6ADE", "#4D908E"];
+function ColorPalette({ value, onChange }: { value: string; onChange: (color: string) => void }) { return <fieldset className="color-palette"><legend>Color</legend><div>{BASIC_COLORS.map((color) => <button key={color} className={value === color ? "selected" : ""} type="button" aria-label={`Seleccionar color ${color}`} style={{ background: color }} onClick={() => onChange(color)} />)}</div></fieldset>; }
 
 function FormCard({ title, description, children }: { title: string; description: string; children: ReactNode }) { return <div className="form-card"><h3>{title}</h3><p className="muted">{description}</p>{children}</div>; }
 function ItemList({ items, empty }: { items: string[]; empty: string }) { return <div className="item-list">{items.length ? items.map((item) => <p key={item}>{item}</p>) : <p className="muted">{empty}</p>}</div>; }
