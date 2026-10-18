@@ -3,9 +3,8 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
-import { ThemeToggle } from "../components/ThemeToggle";
+import { AppHeader } from "../components/AppHeader";
 import { useToast } from "../components/ToastProvider";
 import {
   Allocation,
@@ -21,7 +20,6 @@ import {
   getMovements,
   getPeriods,
   getSummary,
-  logout,
   Movement,
   CalendarEvent,
   setCalendarPayment,
@@ -201,17 +199,9 @@ export default function Dashboard() {
     }
   }
 
-  function handleLogout() {
-    logout();
-    router.replace("/");
-  }
-
   return (
     <main className="dashboard-shell">
-      <header className="app-header">
-        <div className="brand"><span className="brand-mark small">⌂</span><span>Casa Ordenada</span><span className="section-chip">Economía</span></div>
-        <nav className="header-actions"><Link className="section-link" href="/home">Inicio</Link><Link className="section-link" href="/inventory">Inventario</Link><ThemeToggle /><button className="logout-button" type="button" onClick={handleLogout}>Salir</button></nav>
-      </header>
+      <AppHeader section="Economía" />
       <section className="dashboard-content">
         <div className="welcome-row">
           <div><span className="eyebrow">Economía familiar</span><h1>¡Hola, {username}!</h1><p className="muted">Tu dinero, tus sobres y tus movimientos en un mismo lugar.</p></div>

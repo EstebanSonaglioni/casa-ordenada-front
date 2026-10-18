@@ -38,6 +38,10 @@
 
 - Perfil de export estático para Capacitor y capa de almacenamiento seguro de sesión en Android.
 - Notificaciones globales temporales integradas también al login y acciones directas de Economía.
+- Responsive móvil mejorado para navegación, tablas, formularios, calendario y modales.
+- Header móvil reorganizado con menú lateral para Inicio, Economía e Inventario.
+- Pestaña de Mercado Pago para vincular movimientos externos con sobres internos.
+- Botón de sincronización manual y vista de reservas de Mercado Pago.
 
 ### Fixed
 

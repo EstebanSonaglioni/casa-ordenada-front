@@ -13,6 +13,10 @@ import {
   createPlanned,
   createRecurring,
   createExchangeRate,
+  getMercadoPagoMovements,
+  getMercadoPagoReserves,
+  linkMercadoPagoMovement,
+  syncMercadoPago,
   generateRecurring,
   getPlanned,
   getRecurring,
@@ -79,7 +83,7 @@ export default function FinanceManager({ categories, currencies, summary, onRefr
         <span className="muted">Mes {summary.period.month}/{summary.period.year}</span>
       </div>
       <div className="management-tabs" role="tablist" aria-label="Gestión financiera">
-        {[["income", "Ingresos"], ["envelopes", "Sobres"], ["recurring", "Recurrentes"], ["planned", "Futuros"], ["transfer", "Transferir"], ["categories", "Categorías"], ["currencies", "Monedas"]].map(([id, label]) => <button key={id} className={activeTab === id ? "active" : ""} type="button" role="tab" aria-selected={activeTab === id} onClick={() => { setActiveTab(id); setMessage(""); setError(""); }}>{label}</button>)}
+        {[["income", "Ingresos"], ["envelopes", "Sobres"], ["recurring", "Recurrentes"], ["planned", "Futuros"], ["transfer", "Transferir"], ["categories", "Categorías"], ["currencies", "Monedas"], ["mercadopago", "Mercado Pago"]].map(([id, label]) => <button key={id} className={activeTab === id ? "active" : ""} type="button" role="tab" aria-selected={activeTab === id} onClick={() => { setActiveTab(id); setMessage(""); setError(""); }}>{label}</button>)}
       </div>
       {message && <p className="success" role="status">{message}</p>}
       {error && <p className="error" role="alert">{error}</p>}
@@ -90,6 +94,7 @@ export default function FinanceManager({ categories, currencies, summary, onRefr
       {activeTab === "transfer" && <TransferForm currencies={currencies} summary={summary} onSubmit={(data) => submit(() => transferAllocation(summary.period.id, data), "Transferencia realizada.")} />}
       {activeTab === "categories" && <CategoryForm onSubmit={(data) => submit(async () => { await createCategory(data); await onCategoriesRefresh(); }, "Categoría creada.")} />}
       {activeTab === "currencies" && <CurrencyForm currencies={currencies} onSubmit={(data) => submit(() => createExchangeRate(data), "Cotización guardada.")} />}
+      {activeTab === "mercadopago" && <MercadoPagoForm summary={summary} onSubmit={(id, allocationId) => submit(() => linkMercadoPagoMovement(id, allocationId), "Movimiento vinculado al sobre.")} />}
     </section>
   );
 }
@@ -133,6 +138,17 @@ function CategoryForm({ onSubmit }: { onSubmit: (data: { name: string; kind: str
 function CurrencyForm({ currencies, onSubmit }: { currencies: Currency[]; onSubmit: (data: { base_currency_id: number; quote_currency_id: number; rate: number; effective_at: string }) => void }) {
   const [base, setBase] = useState("1"); const [quote, setQuote] = useState("2"); const [rate, setRate] = useState(""); const [date, setDate] = useState(new Date().toISOString().slice(0, 16));
   return <FormCard title="Monedas y cotizaciones" description="Guardá una nueva cotización. Las conversiones siempre usan la última disponible."><div className="currency-list">{currencies.map((currency) => <span key={currency.id} className="currency-chip"><strong>{currency.code}</strong> {currency.symbol} · {currency.name}</span>)}</div><form className="manager-form" onSubmit={(event) => { event.preventDefault(); onSubmit({ base_currency_id: Number(base), quote_currency_id: Number(quote), rate: Number(rate), effective_at: new Date(date).toISOString() }); }}><SelectInput label="Moneda base" value={base} onChange={setBase}>{currencies.map((currency) => <option key={currency.id} value={currency.id}>{currency.code} · {currency.name}</option>)}</SelectInput><SelectInput label="Moneda cotizada" value={quote} onChange={setQuote}>{currencies.map((currency) => <option key={currency.id} value={currency.id}>{currency.code} · {currency.name}</option>)}</SelectInput><TextInput label="Cotización" type="number" min="0.000001" step="0.000001" placeholder="Ej. 1200" value={rate} onChange={setRate} required /><TextInput label="Vigente desde" type="datetime-local" value={date} onChange={setDate} required /><SubmitButton label="Guardar cotización" /></form></FormCard>;
+}
+
+function MercadoPagoForm({ summary, onSubmit }: { summary: Summary; onSubmit: (movementId: number, allocationId: number) => void }) {
+  const [movements, setMovements] = useState<Array<{ id: number; description: string; amount_cents: number; linked_expense_id: number | null }>>([]);
+  const [reserves, setReserves] = useState<Array<{ id: number; name: string; amount_cents: number; category_id: number | null }>>([]);
+  const [allocation, setAllocation] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  async function loadExternal() { const [movementItems, reserveItems] = await Promise.all([getMercadoPagoMovements(), getMercadoPagoReserves()]); setMovements(movementItems); setReserves(reserveItems); }
+  useEffect(() => { void loadExternal().catch(() => undefined); }, []);
+  async function synchronize() { setSyncing(true); try { await syncMercadoPago(); await loadExternal(); } finally { setSyncing(false); } }
+  return <FormCard title="Mercado Pago" description="Leé movimientos y reservas, y vinculá gastos externos a un sobre interno."><div className="manager-actions"><button className="secondary-button" type="button" onClick={() => void synchronize()} disabled={syncing}>{syncing ? "Sincronizando..." : "Sincronizar ahora"}</button></div><h3 className="external-heading">Reservas</h3><div className="item-list">{reserves.length ? reserves.map((reserve) => <p key={reserve.id}><strong>{reserve.name}</strong> · ${(reserve.amount_cents / 100).toLocaleString("es-AR")}</p>) : <p className="muted">No hay reservas sincronizadas.</p>}</div><h3 className="external-heading">Gastos pendientes de vincular</h3><div className="item-list">{movements.filter((item) => !item.linked_expense_id && item.amount_cents > 0).length ? movements.filter((item) => !item.linked_expense_id && item.amount_cents > 0).map((movement) => <div className="external-movement" key={movement.id}><div><strong>{movement.description}</strong><small>${(movement.amount_cents / 100).toLocaleString("es-AR")}</small></div><SelectInput label="Sobre" value={allocation} onChange={setAllocation}>{summary.allocations.map((item) => <option key={item.id} value={item.id}>Sobre {item.category_id}</option>)}</SelectInput><button className="secondary-button" type="button" disabled={!allocation} onClick={() => onSubmit(movement.id, Number(allocation))}>Vincular</button></div>) : <p className="muted">No hay movimientos externos pendientes o Mercado Pago aún no está sincronizado.</p>}</div></FormCard>;
 }
 
 function MoneyInput({ label, value, onChange, currencies, currencyId, onCurrencyChange, currencyLocked = false, required = false }: { label: string; value: string; onChange: (value: string) => void; currencies: Currency[]; currencyId: string; onCurrencyChange: (value: string) => void; currencyLocked?: boolean; required?: boolean }) {

@@ -57,6 +57,8 @@ export type CalendarEvent = {
   source_id: number;
   status: "pending" | "due_soon" | "overdue" | "paid";
 };
+export type MercadoPagoMovement = { id: number; external_id: string; movement_type: string; direction: string; status: string; amount_cents: number; currency_id: number; description: string; occurred_at: string; linked_expense_id: number | null };
+export type MercadoPagoReserve = { id: number; external_id: string; name: string; amount_cents: number; currency_id: number; status: string; category_id: number | null };
 
 export async function login(username: string, password: string) {
   const response = await fetch(`${apiUrl}/auth/login`, {
@@ -172,6 +174,26 @@ export async function getMovements(filters: {
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
   });
   return response.json() as Promise<Movement[]>;
+}
+
+export async function getMercadoPagoMovements() {
+  const response = await authorizedFetch("/api/v1/integrations/mercadopago/movements", { headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } });
+  return response.json() as Promise<MercadoPagoMovement[]>;
+}
+
+export async function getMercadoPagoReserves() {
+  const response = await authorizedFetch("/api/v1/integrations/mercadopago/reserves", { headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } });
+  return response.json() as Promise<MercadoPagoReserve[]>;
+}
+
+export async function syncMercadoPago() {
+  const response = await authorizedFetch("/api/v1/integrations/mercadopago/sync", { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } });
+  return response.json();
+}
+
+export async function linkMercadoPagoMovement(id: number, allocationId: number) {
+  const response = await authorizedFetch(`/api/v1/integrations/mercadopago/movements/${id}/link`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` }, body: JSON.stringify({ allocation_id: allocationId }) });
+  return response.json() as Promise<MercadoPagoMovement>;
 }
 
 export async function getCalendarEvents(year: number, month: number) {

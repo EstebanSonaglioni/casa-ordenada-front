@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { ThemeToggle } from "../components/ThemeToggle";
+import Link from "next/link";
+import { AppHeader } from "../components/AppHeader";
 import {
   CalendarEvent,
   createPeriod,
@@ -13,7 +13,6 @@ import {
   getCurrencies,
   getPeriods,
   getSummary,
-  logout,
   Summary,
 } from "../lib/auth";
 import { getInventoryItems, InventoryItem } from "../lib/inventory";
@@ -58,16 +57,8 @@ export default function HomePage() {
     }
   }
 
-  function signOut() {
-    logout();
-    router.replace("/");
-  }
-
   return <main className="dashboard-shell home-shell">
-    <header className="app-header">
-      <div className="brand"><span className="brand-mark small">⌂</span><span>Casa Ordenada</span><span className="section-chip">Inicio</span></div>
-      <nav className="header-actions"><Link className="section-link" href="/dashboard">Economía</Link><Link className="section-link" href="/inventory">Inventario</Link><ThemeToggle /><button className="logout-button" type="button" onClick={signOut}>Salir</button></nav>
-    </header>
+    <AppHeader section="Inicio" />
     <section className="dashboard-content">
       <div className="welcome-row"><div><span className="eyebrow">Resumen de tu hogar</span><h1>Hola, {username}.</h1><p className="muted">Esto es lo importante para hoy.</p></div></div>
       {error && <p className="error" role="alert">{error}</p>}
