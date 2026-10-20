@@ -3,7 +3,17 @@
 ## [Unreleased]
 
 ### Added
-
+- Registro de usuarios, asistente inicial de casa y campana de invitaciones en tiempo real.
+- Selector de casa activa compartido por las solicitudes autenticadas.
+- Pantalla de espera para usuarios sin casa, con revisión de estado, creación y cierre de sesión.
+- Se elimina el botón flotante `+` redundante que se superponía al grabador de audio.
+- El calendario de economía admite eventos manuales como sueldos y cierres de tarjetas o facturas.
+- Se ajustan los estilos de eventos manuales y del campo de notas del calendario.
+- El calendario permite navegar entre meses y consulta los eventos del mes visible.
+- Los vencimientos recurrentes pueden moverse individualmente dentro del mes.
+- Los gastos futuros se organizan con tags en lugar de categoría obligatoria.
+- La navegación mensual mantiene los vencimientos alineados con el período consultado.
+- Se normaliza el estilo de los botones internos de todos los eventos del calendario.
 - Aplicación Next.js inicial con formulario de login conectado a la API.
 - Cliente para almacenar tokens y renovar el access token mediante refresh.
 - Guía visual cálida con dashboard autenticado, logout y tema oscuro.
@@ -42,6 +52,13 @@
 - Header móvil reorganizado con menú lateral para Inicio, Economía e Inventario.
 - Pestaña de Mercado Pago para vincular movimientos externos con sobres internos.
 - Botón de sincronización manual y vista de reservas de Mercado Pago.
+- Menú lateral desplegable para acceder a Economía e Inventario.
+- Sección Salud con registro diario de ejercicio, edición, resumen y mapa anual de constancia.
+- Botón flotante de carga por voz con propuesta editable y confirmación antes de guardar.
+
+### Changed
+
+- Se retiraron los botones de secciones del encabezado y los recuadros de saldo disponible.
 
 ### Fixed
 

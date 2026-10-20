@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
@@ -22,6 +22,9 @@ import {
   getSummary,
   Movement,
   CalendarEvent,
+  createCalendarEvent,
+  deleteCalendarEvent,
+  moveRecurringCalendarEvent,
   setCalendarPayment,
   Summary,
   updateAllocation,
@@ -41,6 +44,11 @@ export default function Dashboard() {
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const initialCalendarDate = new Date();
+  const [calendarYear, setCalendarYear] = useState(initialCalendarDate.getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(initialCalendarDate.getMonth() + 1);
+  const [calendarFormOpen, setCalendarFormOpen] = useState(false);
+  const [calendarMoveEvent, setCalendarMoveEvent] = useState<CalendarEvent | null>(null);
   const [view, setView] = useState<EconomyView>("summary");
   const [manageTab, setManageTab] = useState("income");
   const [isAddEnvelopeOpen, setIsAddEnvelopeOpen] = useState(false);
@@ -70,8 +78,8 @@ export default function Dashboard() {
   }, [view, movementAllocation, movementKind, summary]);
 
   useEffect(() => {
-    if (view === "calendar") void loadCalendar();
-  }, [view]);
+    if (view === "calendar") void loadCalendar(calendarYear, calendarMonth);
+  }, [view, calendarYear, calendarMonth]);
 
   async function loadInitialData() {
     try {
@@ -115,10 +123,9 @@ export default function Dashboard() {
     }
   }
 
-  async function loadCalendar() {
+  async function loadCalendar(year = calendarYear, month = calendarMonth) {
     try {
-      const today = new Date();
-      setCalendarEvents(await getCalendarEvents(today.getFullYear(), today.getMonth() + 1));
+      setCalendarEvents(await getCalendarEvents(year, month));
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "No pudimos cargar el calendario");
     }
@@ -188,6 +195,7 @@ export default function Dashboard() {
   }
 
   async function handleCalendarPayment(event: CalendarEvent) {
+    if (event.kind === "manual") return;
     try {
       const updated = await setCalendarPayment({ kind: event.kind, source_id: event.source_id, due_date: event.due_date, paid: event.status !== "paid" });
       setCalendarEvents((items) => items.map((item) => item.id === updated.id ? updated : item));
@@ -199,9 +207,30 @@ export default function Dashboard() {
     }
   }
 
+  async function handleCalendarEventCreate(data: { title: string; event_type: "salary" | "card_closing" | "invoice_closing" | "other"; event_date: string; notes?: string }) {
+    const created = await createCalendarEvent(data);
+    await loadCalendar(calendarYear, calendarMonth);
+    setCalendarFormOpen(false);
+    showToast("Evento agregado al calendario.");
+  }
+
+  async function handleCalendarEventDelete(event: CalendarEvent) {
+    if (event.kind !== "manual") return;
+    await deleteCalendarEvent(event.source_id);
+    setCalendarEvents((items) => items.filter((item) => item.id !== event.id));
+    showToast("Evento eliminado.");
+  }
+
+  async function handleCalendarEventMove(event: CalendarEvent, toDate: string) {
+    const moved = await moveRecurringCalendarEvent({ source_id: event.source_id, from_date: event.due_date, to_date: toDate });
+    setCalendarEvents((items) => items.map((item) => item.id === event.id ? moved : item));
+    setCalendarMoveEvent(null);
+    showToast("Vencimiento movido.");
+  }
+
   return (
     <main className="dashboard-shell">
-      <AppHeader section="Economía" />
+      <AppHeader />
       <section className="dashboard-content">
         <div className="welcome-row">
           <div><span className="eyebrow">Economía familiar</span><h1>¡Hola, {username}!</h1><p className="muted">Tu dinero, tus sobres y tus movimientos en un mismo lugar.</p></div>
@@ -217,7 +246,7 @@ export default function Dashboard() {
         {loadError && <p className="error" role="alert">{loadError}</p>}
         {summary && view === "summary" && <SummaryView summary={summary} categories={categories} currencies={currencies} />}
         {summary && view === "envelopes" && <EnvelopeView allocations={summary.allocations} categories={categories} currencies={currencies} onShowMovements={(id) => { setMovementAllocation(String(id)); setView("movements"); }} onUpdate={handleAllocationUpdate} onColor={handleCategoryColor} onDelete={handleAllocationDelete} onAdd={() => setIsAddEnvelopeOpen(true)} />}
-        {view === "calendar" && <CalendarView events={calendarEvents} categories={categories} currencies={currencies} onTogglePayment={handleCalendarPayment} />}
+        {view === "calendar" && <CalendarView year={calendarYear} month={calendarMonth} events={calendarEvents} categories={categories} currencies={currencies} onTogglePayment={handleCalendarPayment} onAdd={() => setCalendarFormOpen(true)} onDelete={handleCalendarEventDelete} onMove={setCalendarMoveEvent} onPrevious={() => { const date = new Date(calendarYear, calendarMonth - 2, 1); setCalendarYear(date.getFullYear()); setCalendarMonth(date.getMonth() + 1); }} onNext={() => { const date = new Date(calendarYear, calendarMonth, 1); setCalendarYear(date.getFullYear()); setCalendarMonth(date.getMonth() + 1); }} onToday={() => { const date = new Date(); setCalendarYear(date.getFullYear()); setCalendarMonth(date.getMonth() + 1); }} />}
         {summary && view === "movements" && <MovementView movements={movements} allocations={summary.allocations} categories={categories} currencies={currencies} allocation={movementAllocation} kind={movementKind} onAllocation={setMovementAllocation} onKind={setMovementKind} />}
         {summary && view === "manage" && <FinanceManager categories={categories} currencies={currencies} summary={summary} onRefresh={loadSummary} onCategoriesRefresh={refreshCategories} initialTab={manageTab} />}
         {summary && <section className="quick-expense dashboard-panel">
@@ -226,13 +255,14 @@ export default function Dashboard() {
         </section>}
       </section>
       {summary && isAddEnvelopeOpen && <AddEnvelopeModal categories={categories} currencies={currencies} periodId={summary.period.id} onClose={() => setIsAddEnvelopeOpen(false)} onCreated={async () => { await loadSummary(); setIsAddEnvelopeOpen(false); }} />}
-      <button className="fab" type="button" onClick={() => setView("manage")} aria-label="Gestionar economía">+</button>
+      {calendarFormOpen && <CalendarEventModal onClose={() => setCalendarFormOpen(false)} onCreate={handleCalendarEventCreate} />}
+      {calendarMoveEvent && <CalendarMoveModal event={calendarMoveEvent} onClose={() => setCalendarMoveEvent(null)} onMove={handleCalendarEventMove} />}
     </main>
   );
 }
 
-function SummaryView({ summary, categories, currencies }: { summary: Summary; categories: Category[]; currencies: Currency[] }) {
-  return <><div className="summary-grid"><article className="metric-card primary-metric"><span>Disponible este mes</span><strong>{formatMoney(summary.balance_cents, summary.base_currency_id, currencies)}</strong><small>Después de separar tus sobres</small></article><article className="metric-card"><span>Ingresos registrados</span><strong>{formatMoney(summary.income_cents, summary.base_currency_id, currencies)}</strong><small>De todas tus fuentes</small></article><article className="metric-card"><span>Ya gastado</span><strong>{formatMoney(summary.spent_cents, summary.base_currency_id, currencies)}</strong><small>En este período</small></article></div><section className="dashboard-panel compact-envelopes"><div className="panel-heading"><div><span className="eyebrow">Vista rápida</span><h2>Sobres de este mes</h2></div><span className="muted">{summary.allocations.length} categorías</span></div><EnvelopeRows allocations={summary.allocations.slice(0, 4)} categories={categories} currencies={currencies} /></section></>;
+ function SummaryView({ summary, categories, currencies }: { summary: Summary; categories: Category[]; currencies: Currency[] }) {
+  return <><div className="summary-grid"><article className="metric-card"><span>Ingresos registrados</span><strong>{formatMoney(summary.income_cents, summary.base_currency_id, currencies)}</strong><small>De todas tus fuentes</small></article><article className="metric-card"><span>Ya gastado</span><strong>{formatMoney(summary.spent_cents, summary.base_currency_id, currencies)}</strong><small>En este período</small></article></div><section className="dashboard-panel compact-envelopes"><div className="panel-heading"><div><span className="eyebrow">Vista rápida</span><h2>Sobres de este mes</h2></div><span className="muted">{summary.allocations.length} categorías</span></div><EnvelopeRows allocations={summary.allocations.slice(0, 4)} categories={categories} currencies={currencies} /></section></>;
 }
 
 function EnvelopeView({ allocations, categories, currencies, onShowMovements, onUpdate, onColor, onDelete, onAdd }: { allocations: Allocation[]; categories: Category[]; currencies: Currency[]; onShowMovements: (id: number) => void; onUpdate: (id: number, planned: string, reserved: string) => Promise<void>; onColor: (categoryId: number, color: string) => Promise<void>; onDelete: (id: number) => Promise<void>; onAdd: () => void }) {
@@ -297,19 +327,33 @@ function EnvelopeCard({ allocation, categories, currencies, layout, onShowMoveme
   return <article className="envelope-card"><div className="envelope-card-top"><span className="category-dot" style={{ background: color }} /><span>{categoryName(allocation.category_id, categories)}</span><small>{currencyCode(allocation.currency_id, currencies)}</small></div><strong className={allocation.balance_cents < 0 ? "negative" : "positive"}>{formatMoney(allocation.balance_cents, allocation.currency_id, currencies)}</strong><p>Disponible</p><div className="progress-track"><span className={allocation.balance_cents < 0 ? "negative-progress" : ""} style={{ width: `${percentage}%` }} /></div><small>{formatMoney(allocation.reserved_amount_cents, allocation.currency_id, currencies)} asignado · {formatMoney(allocation.spent_amount_cents, allocation.currency_id, currencies)} usado</small><small>Meta: {formatMoney(allocation.planned_amount_cents, allocation.currency_id, currencies)}</small>{editing && <form className="envelope-edit" onSubmit={async (event) => { event.preventDefault(); await onUpdate(allocation.id, planned, reserved); await onColor(allocation.category_id, color); setEditing(false); }}><MoneyInput label="Planificado" value={planned} onChange={setPlanned} currencies={currencies} currencyId={String(allocation.currency_id)} onCurrencyChange={() => undefined} required /><MoneyInput label="Asignado" value={reserved} onChange={setReserved} currencies={currencies} currencyId={String(allocation.currency_id)} onCurrencyChange={() => undefined} required /><ColorPalette value={color} onChange={setColor} /><button className="secondary-button" type="submit">Guardar</button></form>}<div className="envelope-actions"><button className="text-button" type="button" onClick={() => setEditing(!editing)}>{editing ? "Cancelar" : "Editar"}</button><button className="text-button" type="button" onClick={() => onShowMovements(allocation.id)}>Movimientos</button><button className="text-button danger" type="button" onClick={() => void onDelete(allocation.id)}>Eliminar</button></div></article>;
 }
 
-function CalendarView({ events, categories, currencies, onTogglePayment }: { events: CalendarEvent[]; categories: Category[]; currencies: Currency[]; onTogglePayment: (event: CalendarEvent) => Promise<void> }) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const today = now.getDate();
-  const days = new Date(year, month + 1, 0).getDate();
-  const start = new Date(year, month, 1).getDay();
+function CalendarView({ year, month, events, categories, currencies, onTogglePayment, onAdd, onDelete, onMove, onPrevious, onNext, onToday }: { year: number; month: number; events: CalendarEvent[]; categories: Category[]; currencies: Currency[]; onTogglePayment: (event: CalendarEvent) => Promise<void>; onAdd: () => void; onDelete: (event: CalendarEvent) => Promise<void>; onMove: (event: CalendarEvent) => void; onPrevious: () => void; onNext: () => void; onToday: () => void }) {
+  const systemDate = new Date();
+  const today = systemDate.getFullYear() === year && systemDate.getMonth() + 1 === month ? systemDate.getDate() : 0;
+  const days = new Date(year, month, 0).getDate();
+  const start = new Date(year, month - 1, 1).getDay();
   const eventsByDay = new Map<number, CalendarEvent[]>();
   events.forEach((event) => {
     const day = Number(event.due_date.slice(8, 10));
     eventsByDay.set(day, [...(eventsByDay.get(day) ?? []), event]);
   });
-  return <section className="calendar-panel dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">Vencimientos</span><h2>{new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric" }).format(now)}</h2></div><span className="today-key"><i /> Hoy, {today}</span></div><div className="calendar-weekdays">{["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({ length: start }, (_, index) => <span className="calendar-blank" key={`blank-${index}`} />)}{Array.from({ length: days }, (_, index) => { const day = index + 1; const dayEvents = eventsByDay.get(day) ?? []; return <article className={`calendar-day ${day === today ? "is-today" : ""}`} key={day}><strong>{day}</strong>{dayEvents.map((event) => <button className={`calendar-event ${event.status}`} key={event.id} type="button" onClick={() => void onTogglePayment(event)} title={event.status === "paid" ? "Marcar como pendiente" : "Marcar como pagado"}><span>{event.title}</span><small>{formatMoney(event.amount_cents, event.currency_id, currencies)}</small></button>)}</article>; })}</div><div className="calendar-legend"><span><i className="pending" /> Pendiente</span><span><i className="due_soon" /> Vence pronto</span><span><i className="overdue" /> Vencido</span><span><i className="paid" /> Pagado</span></div>{!events.length && <EmptyState title="No hay vencimientos este mes" text="Agregá pagos recurrentes o gastos futuros desde Gestionar." />}</section>;
+  const monthLabel = new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+  return <section className="calendar-panel dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">Calendario de economía</span><h2>{monthLabel}</h2></div><div className="calendar-heading-actions"><button className="calendar-nav-button" type="button" onClick={onPrevious} aria-label="Mes anterior">←</button><button className="calendar-nav-button" type="button" onClick={onToday}>Hoy</button><button className="calendar-nav-button" type="button" onClick={onNext} aria-label="Mes siguiente">→</button><button className="secondary-button" type="button" onClick={onAdd}>Agregar evento</button></div></div><div className="calendar-weekdays">{["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({ length: start }, (_, index) => <span className="calendar-blank" key={`blank-${index}`} />)}{Array.from({ length: days }, (_, index) => { const day = index + 1; const dayEvents = eventsByDay.get(day) ?? []; return <article className={`calendar-day ${day === today ? "is-today" : ""}`} key={day}><strong>{day}</strong>{dayEvents.map((event) => <div className={`calendar-event ${event.kind === "manual" ? "manual" : event.status}`} key={event.id}><button type="button" onClick={() => event.kind === "recurring" ? onMove(event) : void onTogglePayment(event)} title={event.kind === "recurring" ? "Mover vencimiento" : event.kind === "manual" ? event.notes ?? event.title : event.status === "paid" ? "Marcar como pendiente" : "Marcar como pagado"}><span>{event.title}</span>{event.amount_cents !== null && event.currency_id !== null && <small>{formatMoney(event.amount_cents, event.currency_id, currencies)}</small>}</button>{event.kind === "manual" && <button className="calendar-event-delete" type="button" aria-label={`Eliminar ${event.title}`} onClick={() => void onDelete(event)}>×</button>}</div>)}</article>; })}</div><div className="calendar-legend"><span><i className="pending" /> Pendiente</span><span><i className="due_soon" /> Vence pronto</span><span><i className="manual" /> Evento</span><span><i className="paid" /> Pagado</span></div>{!events.length && <EmptyState title="No hay eventos este mes" text="Agregá sueldos, cierres de tarjetas, cierres de factura u otros eventos." />}</section>;
+}
+
+function CalendarEventModal({ onClose, onCreate }: { onClose: () => void; onCreate: (data: { title: string; event_type: "salary" | "card_closing" | "invoice_closing" | "other"; event_date: string; notes?: string }) => Promise<void> }) {
+  const [title, setTitle] = useState("");
+  const [eventType, setEventType] = useState<"salary" | "card_closing" | "invoice_closing" | "other">("other");
+  const [eventDate, setEventDate] = useState(new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState("");
+  async function submit(event: FormEvent) { event.preventDefault(); await onCreate({ title, event_type: eventType, event_date: eventDate, notes: notes || undefined }); }
+  return <div className="modal-backdrop"><section className="envelope-modal"><button className="modal-close" type="button" aria-label="Cerrar" onClick={onClose}>×</button><span className="eyebrow">Calendario</span><h2>Agregar evento</h2><p className="muted">Registrá una fecha importante de tu economía.</p><form className="modal-form" onSubmit={(event) => void submit(event)}><label>Título<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ej. Cobro de sueldo" required maxLength={160} /></label><label>Tipo<select value={eventType} onChange={(event) => setEventType(event.target.value as typeof eventType)}><option value="salary">Cobro de sueldo</option><option value="card_closing">Cierre de tarjeta</option><option value="invoice_closing">Cierre de factura</option><option value="other">Otro</option></select></label><label>Fecha<input type="date" value={eventDate} onChange={(event) => setEventDate(event.target.value)} required /></label><label>Notas<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} maxLength={500} /></label><div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancelar</button><button className="primary-button" type="submit">Guardar evento</button></div></form></section></div>;
+}
+
+function CalendarMoveModal({ event, onClose, onMove }: { event: CalendarEvent; onClose: () => void; onMove: (event: CalendarEvent, toDate: string) => Promise<void> }) {
+  const [date, setDate] = useState(event.due_date);
+  async function submit(formEvent: FormEvent) { formEvent.preventDefault(); await onMove(event, date); }
+  return <div className="modal-backdrop"><section className="envelope-modal"><button className="modal-close" type="button" aria-label="Cerrar" onClick={onClose}>×</button><span className="eyebrow">Vencimiento recurrente</span><h2>Mover {event.title}</h2><p className="muted">El cambio se aplica únicamente a este mes; el día habitual del servicio no cambia.</p><form className="modal-form" onSubmit={(formEvent) => void submit(formEvent)}><label>Nueva fecha<input type="date" value={date} onChange={(inputEvent) => setDate(inputEvent.target.value)} required /></label><div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancelar</button><button className="primary-button" type="submit">Mover vencimiento</button></div></form></section></div>;
 }
 
 function MovementView({ movements, allocations, categories, currencies, allocation, kind, onAllocation, onKind }: { movements: Movement[]; allocations: Allocation[]; categories: Category[]; currencies: Currency[]; allocation: string; kind: string; onAllocation: (value: string) => void; onKind: (value: string) => void }) {

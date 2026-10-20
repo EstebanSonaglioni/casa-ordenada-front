@@ -1,6 +1,6 @@
 import { getSessionValue, removeSessionValue, setSessionValue } from "./session";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type TokenResponse = {
   access_token: string;
@@ -48,14 +48,15 @@ export type Movement = {
 };
 export type CalendarEvent = {
   id: string;
-  kind: "recurring" | "planned";
+  kind: "recurring" | "planned" | "manual";
   due_date: string;
   title: string;
-  amount_cents: number;
-  currency_id: number;
-  category_id: number;
+  amount_cents: number | null;
+  currency_id: number | null;
+  category_id: number | null;
   source_id: number;
-  status: "pending" | "due_soon" | "overdue" | "paid";
+  status: "pending" | "due_soon" | "overdue" | "paid" | "scheduled";
+  notes: string | null;
 };
 export type MercadoPagoMovement = { id: number; external_id: string; movement_type: string; direction: string; status: string; amount_cents: number; currency_id: number; description: string; occurred_at: string; linked_expense_id: number | null };
 export type MercadoPagoReserve = { id: number; external_id: string; name: string; amount_cents: number; currency_id: number; status: string; category_id: number | null };
@@ -79,6 +80,70 @@ export async function login(username: string, password: string) {
     setSessionValue("role", tokens.role),
   ]);
   return tokens;
+}
+
+export async function register(username: string, displayName: string, password: string) {
+  const response = await fetch(`${apiUrl}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, display_name: displayName, password }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? "No pudimos crear la cuenta");
+  }
+  const tokens = (await response.json()) as TokenResponse;
+  await Promise.all([
+    setSessionValue("access_token", tokens.access_token),
+    setSessionValue("refresh_token", tokens.refresh_token),
+    setSessionValue("username", tokens.username),
+    setSessionValue("role", tokens.role),
+    setSessionValue("display_name", displayName),
+  ]);
+  return tokens;
+}
+
+export type Household = { id: number; name: string; role: "owner" | "member" };
+export type HouseholdMember = { user_id: number; username: string; display_name: string; role: "owner" | "member" };
+export type Invitation = { id: number; household_id: number; household_name: string; invited_username: string; invited_by_username: string; role: "owner" | "member"; status: string; created_at: string; expires_at: string; responded_at: string | null };
+
+export async function getHouseholds() {
+  const response = await authorizedFetch("/api/v1/households");
+  const households = await response.json() as Household[];
+  const current = await getSessionValue("active_household_id");
+  if (!current && households[0]) await setSessionValue("active_household_id", String(households[0].id));
+  return households;
+}
+
+export async function setActiveHousehold(householdId: number) {
+  await setSessionValue("active_household_id", String(householdId));
+}
+
+export async function createHousehold(name: string) {
+  const response = await authorizedFetch("/api/v1/households", { method: "POST", body: JSON.stringify({ name }) });
+  const household = await response.json() as Household;
+  await setActiveHousehold(household.id);
+  return household;
+}
+
+export async function getHouseholdMembers(householdId: number) {
+  const response = await authorizedFetch(`/api/v1/households/${householdId}/members`);
+  return response.json() as Promise<HouseholdMember[]>;
+}
+
+export async function inviteToHousehold(householdId: number, username: string, role: "owner" | "member") {
+  const response = await authorizedFetch(`/api/v1/households/${householdId}/invitations`, { method: "POST", body: JSON.stringify({ username, role }) });
+  return response.json() as Promise<Invitation>;
+}
+
+export async function getInvitations(history = false) {
+  const response = await authorizedFetch(history ? "/api/v1/invitations/history" : "/api/v1/invitations");
+  return response.json() as Promise<Invitation[]>;
+}
+
+export async function respondToInvitation(id: number, action: "accept" | "reject") {
+  const response = await authorizedFetch(`/api/v1/invitations/${id}/${action}`, { method: "POST" });
+  return response.json() as Promise<Invitation>;
 }
 
 export async function refreshAccessToken() {
@@ -109,30 +174,33 @@ export async function refreshAccessToken() {
 }
 
 export function logout() {
-  void Promise.all(["access_token", "refresh_token", "username", "role"].map(removeSessionValue));
+  void Promise.all(["access_token", "refresh_token", "username", "role", "display_name", "active_household_id"].map(removeSessionValue));
 }
 
 export async function authorizedFetch(path: string, init: RequestInit = {}) {
   const accessToken = await getSessionValue("access_token");
+  const activeHouseholdId = await getSessionValue("active_household_id");
+  const requestHeaders = new Headers(init.headers);
+  if (!(init.body instanceof FormData)) requestHeaders.set("Content-Type", "application/json");
+  if (accessToken) requestHeaders.set("Authorization", `Bearer ${accessToken}`);
+  if (activeHouseholdId) requestHeaders.set("X-Household-ID", activeHouseholdId);
   let response = await fetch(`${apiUrl}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init.headers, ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+    headers: requestHeaders,
   });
   if (response.status === 401) {
     await refreshAccessToken();
     const refreshedToken = await getSessionValue("access_token");
     response = await fetch(`${apiUrl}${path}`, {
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...init.headers,
-        ...(refreshedToken ? { Authorization: `Bearer ${refreshedToken}` } : {}),
-      },
+      headers: (() => { const headers = new Headers(init.headers); if (!(init.body instanceof FormData)) headers.set("Content-Type", "application/json"); if (refreshedToken) headers.set("Authorization", `Bearer ${refreshedToken}`); if (activeHouseholdId) headers.set("X-Household-ID", activeHouseholdId); return headers; })(),
     });
   }
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { detail?: string } | null;
-    throw new Error(payload?.detail ?? "No pudimos cargar la información");
+    const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
+    const detail = payload?.detail;
+    const message = typeof detail === "string" ? detail : detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string" ? `${detail.message}${"fields" in detail && Array.isArray(detail.fields) ? ` Campos faltantes: ${detail.fields.join(", ")}.` : ""}` : detail ? JSON.stringify(detail) : "No pudimos cargar la información";
+    throw new Error(message);
   }
   return response;
 }
@@ -212,6 +280,20 @@ export async function setCalendarPayment(data: { kind: "recurring" | "planned"; 
   return response.json() as Promise<CalendarEvent>;
 }
 
+export async function moveRecurringCalendarEvent(data: { source_id: number; from_date: string; to_date: string }) {
+  const response = await authorizedFetch("/api/v1/calendar/recurring/move", { method: "POST", body: JSON.stringify(data) });
+  return response.json() as Promise<CalendarEvent>;
+}
+
+export async function createCalendarEvent(data: { title: string; event_type: "salary" | "card_closing" | "invoice_closing" | "other"; event_date: string; notes?: string }) {
+  const response = await authorizedFetch("/api/v1/calendar/events", { method: "POST", body: JSON.stringify(data) });
+  return response.json() as Promise<CalendarEvent>;
+}
+
+export async function deleteCalendarEvent(id: number) {
+  await authorizedFetch(`/api/v1/calendar/events/${id}`, { method: "DELETE" });
+}
+
 export async function getCategories() {
   const response = await authorizedFetch("/api/v1/categories", {
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
@@ -237,7 +319,7 @@ export async function createExchangeRate(data: { base_currency_id: number; quote
 
 export type Period = { id: number; year: number; month: number; status: string };
 export type RecurringExpense = { id: number; category_id: number; currency_id: number; name: string; amount_cents: number; amount_type: string; due_day: number; due_date: string | null; active: boolean };
-export type PlannedExpense = { id: number; category_id: number; currency_id: number; description: string; estimated_amount_cents: number; target_date: string; status: string };
+export type PlannedExpense = { id: number; category_id: number | null; currency_id: number; description: string; estimated_amount_cents: number; target_date: string; status: string; notes: string | null; tags: string[] };
 
 export async function createCategory(data: { name: string; kind: string; color?: string }) {
   const response = await authorizedFetch("/api/v1/categories", {
@@ -307,7 +389,7 @@ export async function getRecurring() {
   return response.json() as Promise<RecurringExpense[]>;
 }
 
-export async function createPlanned(data: { category_id: number; currency_id: number; description: string; estimated_amount_cents: number; target_date: string }) {
+export async function createPlanned(data: { currency_id: number; description: string; estimated_amount_cents: number; target_date: string; tags: string[] }) {
   const response = await authorizedFetch("/api/v1/planned-expenses", {
     method: "POST",
     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
