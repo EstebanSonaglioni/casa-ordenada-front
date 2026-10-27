@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+
+- Barra lateral persistente con opción para mantenerla abierta entre navegaciones.
+
+### Changed
+
+- Se unificaron espaciados, tamaños de controles, estados de foco y jerarquías visuales para una interfaz más consistente.
+- Se mejoraron el encabezado, las tarjetas y la navegación responsive.
 - Registro de usuarios, asistente inicial de casa y campana de invitaciones en tiempo real.
 - Selector de casa activa compartido por las solicitudes autenticadas.
 - Pantalla de espera para usuarios sin casa, con revisión de estado, creación y cierre de sesión.
