@@ -51,8 +51,11 @@ body { margin: 0; min-height: 100vh; background: var(--linen); }
 .sidebar-caption { color: var(--muted); font-size: 0.72rem; }
 .sidebar-logout { padding: 0.65rem 0; border: 0; color: var(--terracotta); background: transparent; text-align: left; font-size: 0.78rem; font-weight: 800; }
 .drawer-backdrop { display: none; }
+.sidebar-pin { margin-top: auto; padding: 0.75rem 0.9rem; border: 1px solid var(--line); border-radius: 12px; color: var(--sage-dark); background: var(--linen); font-size: 0.78rem; font-weight: 800; text-align: left; }
+.sidebar-pin:hover, .sidebar-pin.active { border-color: var(--sage); color: var(--sage-dark); background: rgb(91 130 102 / 12%); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
+button:focus-visible, a:focus-visible { outline: 3px solid rgb(224 122 95 / 45%); outline-offset: 2px; }
 h1, h2 { font-family: "Nunito", "Fredoka", Arial, sans-serif; letter-spacing: -0.03em; }
 .muted { color: var(--muted); }
 .eyebrow { color: var(--sage); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
@@ -101,8 +104,8 @@ select:focus { border-color: var(--sage); box-shadow: 0 0 0 3px rgb(91 130 102 /
 .notification-actions { display: flex; justify-content: end; gap: 0.5rem; margin-top: 0.35rem; }
 .notification-actions button { width: auto; margin: 0; padding: 0.55rem 0.7rem; font-size: 0.75rem; }
 
-.dashboard-shell { min-height: 100vh; padding: 1.25rem clamp(1.25rem, 5vw, 5rem); }
-.app-header { position: relative; display: flex; max-width: 76rem; align-items: center; justify-content: space-between; margin: auto; }
+.dashboard-shell { min-height: 100vh; padding: 1.25rem clamp(1rem, 4vw, 4rem); }
+.app-header { position: relative; z-index: 10; display: flex; max-width: 80rem; min-height: 3rem; align-items: center; justify-content: space-between; gap: 1rem; margin: auto; }
 .brand, .header-actions { display: flex; align-items: center; gap: 0.7rem; }
 .brand { font-family: "Nunito", "Fredoka", Arial, sans-serif; font-weight: 800; }
 .section-chip { padding: 0.35rem 0.65rem; border-radius: 999px; color: var(--sage-dark); background: rgb(91 130 102 / 13%); font-family: "Inter", Arial, sans-serif; font-size: 0.72rem; font-weight: 800; }
@@ -111,7 +114,7 @@ select:focus { border-color: var(--sage); box-shadow: 0 0 0 3px rgb(91 130 102 /
 .dashboard-shell { padding-left: calc(clamp(1.25rem, 5vw, 5rem) + 16rem); }
 .dashboard-shell .app-header { max-width: none; }
 .login-shell .app-sidebar { display: none; }
-.dashboard-content { width: min(100%, 76rem); margin: clamp(4rem, 10vh, 7rem) auto 0; }
+.dashboard-content { width: min(100%, 80rem); margin: clamp(3.5rem, 8vh, 6rem) auto 0; }
 .welcome-row { display: flex; align-items: start; justify-content: space-between; }
 .welcome-row h1 { margin: 0.45rem 0 0.3rem; font-size: clamp(2.2rem, 5vw, 4.2rem); }
 .welcome-row p { margin: 0; }
@@ -386,6 +389,19 @@ select:focus { border-color: var(--sage); box-shadow: 0 0 0 3px rgb(91 130 102 /
 .task-calendar-event.completed { color: var(--sage-dark); background: rgb(91 130 102 / 18%); text-decoration: line-through; }
 .calendar-day.outside { background: rgb(240 235 225 / 38%); }
 .empty-state { margin-top: 1.25rem; text-align: center; }
+
+/* Shared rhythm and controls */
+.dashboard-panel, .metric-card, .envelope-card, .home-action, .inventory-item { transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.dashboard-panel:hover, .metric-card:hover, .envelope-card:hover, .inventory-item:hover { border-color: color-mix(in srgb, var(--sage) 38%, var(--line)); box-shadow: 0 0.7rem 1.8rem rgb(47 62 70 / 8%); }
+.primary-button, .secondary-button, .calendar-nav-button, .inventory-action-button, .logout-button, .section-link { min-height: 2.7rem; }
+.primary-button, .secondary-button, .logout-button, .section-link { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+.panel-heading > :last-child, .calendar-heading-actions { flex-shrink: 0; }
+.drawer-backdrop-pinned { pointer-events: none; }
+
+@media (min-width: 761px) {
+  .drawer-backdrop-pinned { display: none; }
+  .sidebar-persistent { top: 1rem; bottom: 1rem; border: 1px solid var(--line); border-radius: 0 18px 18px 0; }
+}
 
 @media (max-width: 760px) {
   .dashboard-shell { padding-left: 1.25rem; }
