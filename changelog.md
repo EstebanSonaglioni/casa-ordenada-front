@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Sidebar persistente en escritorio y drawer responsive en móvil, con navegación activa e iconos.
 - Sección de Tareas con pendientes, habituales, formulario de atributos
   opcionales y calendario mensual de ocurrencias.
 - Registro de usuarios, asistente inicial de casa y campana de invitaciones en tiempo real.
